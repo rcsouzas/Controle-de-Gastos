@@ -16,4 +16,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
     List<Transaction> findByDateBetweenAndCategoryOrderByDateDesc(LocalDate start, LocalDate end, Category category);
 
     Optional<Transaction> findByRecurringTransactionIdAndRecurrenceDate(Long recurringTransactionId, LocalDate recurrenceDate);
+
+    List<Transaction> findByInstallmentGroupId(String installmentGroupId);
+
+    List<Transaction> findByCategoryAndInstallmentGroupIdIsNullOrderByDateAsc(Category category);
 }

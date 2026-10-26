@@ -171,7 +171,7 @@ td:first-child { color: var(--ink); font-weight: 600; }
 .form-field input, .form-field select { height: 42px; }
 .planned-option { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
 .planned-option input { accent-color: var(--green); }
-#recurrence-options[hidden], #planned-option[hidden] { display: none; }
+#recurrence-options[hidden], #installment-options[hidden], #planned-option[hidden] { display: none; }
 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .currency-input { position: relative; }
 .currency-input > span { position: absolute; top: 13px; left: 10px; color: var(--muted); font-size: 11px; }

@@ -10,7 +10,9 @@ const categories = {
   TRANSPORT: { label: "Transporte", color: "#157a62" },
   INVESTMENTS: { label: "Investimentos", color: "#8a7ba8" },
   OTHER: { label: "Outros", color: "#91a29a" },
-  SALARY: { label: "Salário", color: "#157a62" }
+  SALARY: { label: "Salário", color: "#157a62" },
+  SUBSCRIPTION: { label: "Assinatura", color: "#96705b" },
+  INSTALLMENT: { label: "Parcela", color: "#8d6f9f" }
 };
 
 const paymentMethods = {
@@ -33,7 +35,7 @@ const elements = Object.fromEntries([
   "transaction-form", "transaction-id", "form-title", "description", "amount", "date", "category",
   "payment-method", "submit-button", "close-form", "cancel-form", "new-transaction-button", "toast",
   "recurrence-id", "source-recurring-id", "recurrence-options", "frequency", "end-date", "planned",
-  "planned-option", "projection-through", "projected-balance", "projection-current-balance",
+  "planned-option", "installment-options", "installment-count", "projection-through", "projected-balance", "projection-current-balance",
   "projected-income", "projected-expenses", "lowest-projected-balance", "additional-balance-needed",
   "recurrences-list", "occurrences-list", "new-recurrence-button"
 ].map((id) => [id, document.getElementById(id)]));
@@ -308,9 +310,41 @@ function render() {
 }
 
 function setFormOptions() {
-  const categoryOptions = Object.entries(categories).map(([value, category]) => `<option value="${value}">${category.label}</option>`).join("");
-  elements.category.innerHTML = categoryOptions;
-  elements["payment-method"].innerHTML = Object.entries(paymentMethods).map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  document.querySelectorAll('input[name="type"]').forEach((input) => {
+    input.addEventListener("change", updateFormOptions);
+  });
+  elements.category.addEventListener("change", updateInstallmentOptions);
+  updateFormOptions();
+}
+
+function updateFormOptions(preferredCategory = elements.category.value, preferredPaymentMethod = elements["payment-method"].value) {
+  const type = document.querySelector('input[name="type"]:checked').value;
+  const availableCategories = Object.entries(categories).filter(([value]) => type === "EXPENSE"
+    ? value !== "SALARY"
+    : ["SALARY", "INVESTMENTS", "OTHER"].includes(value));
+  elements.category.innerHTML = availableCategories
+    .map(([value, category]) => `<option value="${value}">${category.label}</option>`).join("");
+  elements.category.value = availableCategories.some(([value]) => value === preferredCategory)
+    ? preferredCategory
+    : type === "INCOME" ? "SALARY" : "FOOD";
+
+  const availablePaymentMethods = Object.entries(paymentMethods).filter(([value]) => type === "EXPENSE"
+    || ["PIX", "BANK_TRANSFER", "CASH", "OTHER"].includes(value));
+  elements["payment-method"].innerHTML = availablePaymentMethods
+    .map(([value, label]) => `<option value="${value}">${label}</option>`).join("");
+  elements["payment-method"].value = availablePaymentMethods.some(([value]) => value === preferredPaymentMethod)
+    ? preferredPaymentMethod
+    : "PIX";
+  updateInstallmentOptions();
+}
+
+function updateInstallmentOptions() {
+  const isNewInstallment = elements.category.value === "INSTALLMENT"
+    && !elements["transaction-id"].value
+    && !elements["recurrence-id"].value
+    && !elements["source-recurring-id"].value
+    && elements["recurrence-options"].hidden;
+  elements["installment-options"].hidden = !isNewInstallment;
 }
 
 function setFilterOptions() {
@@ -319,10 +353,12 @@ function setFilterOptions() {
   const selectedCategory = elements["filter-category"].value;
   const monthLabels = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
   elements["filter-month"].innerHTML = '<option value="">Todos os meses</option>' + monthLabels.map((label, index) => `<option value="${String(index + 1).padStart(2, "0")}">${label}</option>`).join("");
-  const years = new Set([currentDate.getFullYear(), ...state.transactions.map((item) => Number(item.date.slice(0, 4)))]);
+  const years = new Set(state.transactions.map((item) => Number(item.date.slice(0, 4))));
+  for (let year = currentDate.getFullYear(); year <= currentDate.getFullYear() + 10; year++) {
+    years.add(year);
+  }
   elements["filter-year"].innerHTML = '<option value="">Todos os anos</option>' + [...years].sort((a, b) => b - a).map((year) => `<option value="${year}">${year}</option>`).join("");
   elements["filter-category"].innerHTML = '<option value="">Todas as categorias</option>' + Object.entries(categories)
-    .filter(([value]) => value !== "SALARY")
     .map(([value, category]) => `<option value="${value}">${category.label}</option>`).join("");
   if (!state.filtersInitialized) {
     elements["filter-month"].value = String(currentDate.getMonth() + 1).padStart(2, "0");
@@ -330,7 +366,7 @@ function setFilterOptions() {
     state.filtersInitialized = true;
   } else {
     elements["filter-month"].value = selectedMonth;
-    elements["filter-year"].value = selectedYear;
+    elements["filter-year"].value = selectedYear && years.has(Number(selectedYear)) ? selectedYear : "";
     elements["filter-category"].value = selectedCategory;
   }
 }
@@ -353,14 +389,15 @@ function openForm(transaction = null, recurrence = null, occurrence = null, recu
   elements.amount.value = source?.amount ?? "";
   elements.date.value = transaction?.date ?? recurrence?.startDate ?? occurrence?.date ?? toISODate(currentDate);
   elements.date.disabled = isOccurrence || Boolean(transaction?.recurrenceDate);
-  elements.category.value = source?.category ?? "FOOD";
-  elements["payment-method"].value = source?.paymentMethod ?? "PIX";
+  document.querySelector(`input[name="type"][value="${source?.type ?? "EXPENSE"}"]`).checked = true;
+  updateFormOptions(source?.category ?? (source?.type === "INCOME" ? "SALARY" : "FOOD"), source?.paymentMethod ?? "PIX");
   elements["frequency"].value = recurrence?.frequency ?? "WEEKLY";
   elements["end-date"].value = recurrence?.endDate ?? "";
   elements["recurrence-options"].hidden = !editingRecurrence;
   elements["planned-option"].hidden = editingRecurrence;
   elements.planned.checked = transaction?.planned ?? isOccurrence;
-  document.querySelector(`input[name="type"][value="${source?.type ?? "EXPENSE"}"]`).checked = true;
+  elements["installment-count"].value = "2";
+  updateInstallmentOptions();
   elements["entry-panel"].classList.add("open");
   elements["entry-panel"].setAttribute("aria-hidden", "false");
   elements["panel-backdrop"].classList.add("open");
@@ -412,14 +449,25 @@ async function saveTransaction(event) {
       });
       successMessage = recurrenceId ? "Recorrência atualizada." : "Recorrência adicionada.";
     } else {
-      const url = id
-        ? `${API_URL}/${id}`
-        : sourceRecurringId
-          ? `${RECURRENCES_URL}/${sourceRecurringId}/occurrences`
-          : API_URL;
-      const method = id ? "PUT" : "POST";
-      await request(url, { method, body: JSON.stringify(transaction) });
-      successMessage = id ? "Transação atualizada." : sourceRecurringId ? "Período registrado." : "Transação adicionada.";
+      if (!id && !sourceRecurringId && transaction.category === "INSTALLMENT") {
+        await request(`${API_URL}/installments`, {
+          method: "POST",
+          body: JSON.stringify({
+            transaction,
+            count: Number(elements["installment-count"].value)
+          })
+        });
+        successMessage = "Parcelas adicionadas.";
+      } else {
+        const url = id
+          ? `${API_URL}/${id}`
+          : sourceRecurringId
+            ? `${RECURRENCES_URL}/${sourceRecurringId}/occurrences`
+            : API_URL;
+        const method = id ? "PUT" : "POST";
+        await request(url, { method, body: JSON.stringify(transaction) });
+        successMessage = id ? "Transação atualizada." : sourceRecurringId ? "Período registrado." : "Transação adicionada.";
+      }
     }
     closeForm();
     const refreshed = await loadTransactions();
@@ -441,7 +489,10 @@ async function deleteRecurrence(recurrence) {
 }
 
 async function deleteTransaction(transaction) {
-  if (!window.confirm(`Excluir a transação "${transaction.description}"?`)) return;
+  const confirmation = transaction.installmentGroupId
+    ? `Excluir "${transaction.description}" e todas as parcelas dessa compra?`
+    : `Excluir a transação "${transaction.description}"?`;
+  if (!window.confirm(confirmation)) return;
   try {
     await request(`${API_URL}/${transaction.id}`, { method: "DELETE" });
     const refreshed = await loadTransactions();

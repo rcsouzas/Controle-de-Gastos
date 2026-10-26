@@ -3,6 +3,7 @@ package br.com.controlegastos.controller;
 import br.com.controlegastos.model.Transaction;
 import br.com.controlegastos.model.Transaction.Category;
 import br.com.controlegastos.model.FinancialSummary;
+import br.com.controlegastos.model.InstallmentRequest;
 import br.com.controlegastos.service.TransactionService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -45,6 +46,12 @@ public class TransactionController {
     @PostMapping
     public ResponseEntity<Transaction> create(@Valid @RequestBody Transaction transaction) {
         Transaction persisted = service.create(transaction);
+        return ResponseEntity.status(HttpStatus.CREATED).body(persisted);
+    }
+
+    @PostMapping("/installments")
+    public ResponseEntity<List<Transaction>> createInstallments(@Valid @RequestBody InstallmentRequest request) {
+        List<Transaction> persisted = service.createInstallments(request.transaction(), request.count());
         return ResponseEntity.status(HttpStatus.CREATED).body(persisted);
     }
 

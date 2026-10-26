@@ -1,5 +1,6 @@
 package br.com.controlegastos;
 
+import br.com.controlegastos.config.CategorySchemaMigration;
 import br.com.controlegastos.model.RecurringTransaction;
 import br.com.controlegastos.model.Transaction;
 import br.com.controlegastos.repository.RecurringTransactionRepository;
@@ -14,6 +15,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -33,6 +35,12 @@ class PlanningIntegrationTest {
 
     @Autowired
     private RecurringTransactionRepository recurringRepository;
+
+    @Autowired
+    private CategorySchemaMigration categorySchemaMigration;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @BeforeEach
     void cleanDatabase() {
@@ -149,6 +157,165 @@ class PlanningIntegrationTest {
     }
 
     @Test
+    void installmentTransactionsAreSavedMonthlyAndFutureAmountsEnterProjection() {
+        LocalDate firstInstallment = LocalDate.of(2027, 1, 31);
+        Map<String, Object> transaction = Map.of(
+                "description", "Compra parcelada",
+                "amount", 150,
+                "date", firstInstallment.toString(),
+                "type", "EXPENSE",
+                "category", "INSTALLMENT",
+                "paymentMethod", "CREDIT_CARD",
+                "planned", false);
+        Map<String, Object> request = Map.of("transaction", transaction, "count", 3);
+
+        ResponseEntity<java.util.List<Map<String, Object>>> created = http.exchange(
+                "/api/transactions/installments", HttpMethod.POST, jsonEntity(request),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody()).hasSize(3);
+        assertThat(created.getBody()).extracting(item -> item.get("date"))
+                .containsExactly("2027-01-31", "2027-02-28", "2027-03-31");
+        assertThat(created.getBody()).allSatisfy(item -> {
+            assertThat(item.get("category")).isEqualTo("INSTALLMENT");
+            assertThat(item.get("planned")).isEqualTo(true);
+            assertThat(item.get("installmentGroupId")).isNotNull();
+        });
+        assertThat(created.getBody()).extracting(item -> item.get("installmentGroupId"))
+                .containsOnly(created.getBody().get(0).get("installmentGroupId"));
+
+        ResponseEntity<Map<String, Object>> projection = http.exchange(
+                "/api/projection?through=2027-03-31", HttpMethod.GET, null,
+                new ParameterizedTypeReference<>() {});
+        assertThat(new BigDecimal(projection.getBody().get("expectedExpenses").toString()))
+                .isEqualByComparingTo("450");
+        assertThat(new BigDecimal(projection.getBody().get("projectedBalance").toString()))
+                .isEqualByComparingTo("-450");
+
+        ResponseEntity<Void> deleted = http.exchange(
+                "/api/transactions/" + created.getBody().get(1).get("id"), HttpMethod.DELETE, null, Void.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(transactionRepository.count()).isZero();
+        projection = http.exchange(
+                "/api/projection?through=2027-03-31", HttpMethod.GET, null,
+                new ParameterizedTypeReference<>() {});
+        assertThat(new BigDecimal(projection.getBody().get("expectedExpenses").toString()))
+                .isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void subscriptionCategoryCanBeSaved() {
+        Map<String, Object> subscription = Map.of(
+                "description", "Assinatura mensal",
+                "amount", 29.90,
+                "date", LocalDate.now().toString(),
+                "type", "EXPENSE",
+                "category", "SUBSCRIPTION",
+                "paymentMethod", "CREDIT_CARD",
+                "planned", false);
+
+        ResponseEntity<Map<String, Object>> created = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(subscription),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().get("category")).isEqualTo("SUBSCRIPTION");
+    }
+
+    @Test
+    void deletingALegacyInstallmentRemovesItsMonthlySiblings() {
+        LocalDate firstInstallment = LocalDate.of(2027, 1, 31);
+        Transaction first = new Transaction();
+        first.setDescription("Compra parcelada antiga");
+        first.setAmount(new BigDecimal("100"));
+        first.setDate(firstInstallment);
+        first.setType(Transaction.TransactionType.EXPENSE);
+        first.setCategory(Transaction.Category.INSTALLMENT);
+        first.setPaymentMethod(Transaction.PaymentMethod.CREDIT_CARD);
+        first.setPlanned(true);
+        ResponseEntity<java.util.List<Map<String, Object>>> created = http.exchange(
+                "/api/transactions/installments",
+                HttpMethod.POST,
+                jsonEntity(Map.of("transaction", Map.of(
+                        "description", first.getDescription(),
+                        "amount", first.getAmount(),
+                        "date", first.getDate().toString(),
+                        "type", first.getType().name(),
+                        "category", first.getCategory().name(),
+                        "paymentMethod", first.getPaymentMethod().name(),
+                        "planned", true), "count", 3)),
+                new ParameterizedTypeReference<>() {});
+        assertThat(created.getBody()).hasSize(3);
+
+        transactionRepository.findAll().forEach(transaction -> transaction.setInstallmentGroupId(null));
+        transactionRepository.flush();
+
+        ResponseEntity<Void> deleted = http.exchange(
+                "/api/transactions/" + created.getBody().get(1).get("id"),
+                HttpMethod.DELETE, null, Void.class);
+
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(transactionRepository.count()).isZero();
+    }
+
+    @Test
+    void incomeAndExpenseRejectIncompatibleCategoriesAndPaymentMethods() {
+        Map<String, Object> invalidIncome = Map.of(
+                "description", "Assinatura como receita",
+                "amount", 20,
+                "date", LocalDate.now().toString(),
+                "type", "INCOME",
+                "category", "SUBSCRIPTION",
+                "paymentMethod", "CREDIT_CARD",
+                "planned", false);
+
+        ResponseEntity<Map<String, String>> response = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(invalidIncome),
+                new ParameterizedTypeReference<>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("message")).contains("compatível");
+        assertThat(transactionRepository.count()).isZero();
+    }
+
+    @Test
+    void legacyH2CategoryEnumsAreMigratedWithoutLosingExistingTransactions() throws Exception {
+        Map<String, Object> existingTransaction = Map.of(
+                "description", "Categoria antiga",
+                "amount", 10,
+                "date", LocalDate.now().toString(),
+                "type", "EXPENSE",
+                "category", "FOOD",
+                "paymentMethod", "PIX",
+                "planned", false);
+        http.exchange("/api/transactions", HttpMethod.POST, jsonEntity(existingTransaction), Map.class);
+
+        String legacyCategories = "ENUM('FOOD','HOUSING','LEISURE','TRANSPORT','INVESTMENTS','OTHER','SALARY')";
+        jdbcTemplate.execute("ALTER TABLE transactions ALTER COLUMN category SET DATA TYPE " + legacyCategories);
+        jdbcTemplate.execute("ALTER TABLE recurring_transactions ALTER COLUMN category SET DATA TYPE " + legacyCategories);
+
+        categorySchemaMigration.run(null);
+
+        assertThat(transactionRepository.findAll()).hasSize(1);
+        assertThat(transactionRepository.findAll().get(0).getCategory()).isEqualTo(Transaction.Category.FOOD);
+
+        Map<String, Object> subscription = Map.of(
+                "description", "Assinatura após migração",
+                "amount", 29.90,
+                "date", LocalDate.now().toString(),
+                "type", "EXPENSE",
+                "category", "SUBSCRIPTION",
+                "paymentMethod", "CREDIT_CARD",
+                "planned", false);
+        ResponseEntity<Map<String, Object>> saved = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(subscription),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(saved.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(saved.getBody().get("category")).isEqualTo("SUBSCRIPTION");
+    }
+
+    @Test
     void confirmedTransactionsUpdateTheRealBalanceAndStopBeingProjected() {
         LocalDate today = LocalDate.now();
         Map<String, Object> recurring = Map.of(
@@ -201,6 +368,8 @@ class PlanningIntegrationTest {
                 "/api/transactions", HttpMethod.POST, jsonEntity(transaction),
                 new ParameterizedTypeReference<>() {});
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(created.getBody().get("date")).isEqualTo(LocalDate.now().toString());
+        assertThat(created.getBody().get("planned")).isEqualTo(false);
         Number id = (Number) created.getBody().get("id");
 
         Map<String, Object> updatedTransaction = Map.of(
@@ -226,6 +395,26 @@ class PlanningIntegrationTest {
         ResponseEntity<Void> deleted = http.exchange(
                 "/api/transactions/" + id.longValue(), HttpMethod.DELETE, null, Void.class);
         assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(transactionRepository.count()).isZero();
+    }
+
+    @Test
+    void invalidTransactionDateReturnsAnActionableJsonError() {
+        Map<String, Object> transaction = Map.of(
+                "description", "Data inválida",
+                "amount", 100,
+                "date", "28/11/2026",
+                "type", "EXPENSE",
+                "category", "OTHER",
+                "paymentMethod", "PIX",
+                "planned", false);
+
+        ResponseEntity<Map<String, String>> response = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(transaction),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("message")).contains("yyyy-MM-dd");
         assertThat(transactionRepository.count()).isZero();
     }
 
@@ -333,10 +522,10 @@ class PlanningIntegrationTest {
         ResponseEntity<String> page = http.getForEntity("/", String.class);
         assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(page.getBody()).contains("Clareza | Controle financeiro");
-        assertThat(page.getBody()).contains("script.js?v=4");
+        assertThat(page.getBody()).contains("script.js?v=7");
         assertThat(page.getHeaders().getCacheControl()).contains("no-store");
 
-        ResponseEntity<String> script = http.getForEntity("/script.js?v=3", String.class);
+        ResponseEntity<String> script = http.getForEntity("/script.js?v=7", String.class);
         assertThat(script.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(script.getBody()).contains("window.location.origin");
     }

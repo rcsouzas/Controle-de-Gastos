@@ -3,6 +3,8 @@ package br.com.controlegastos.controller;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.web.context.request.ServletWebRequest;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -27,8 +29,15 @@ public class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("message", message));
     }
 
-    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
-            IllegalArgumentException.class, DateTimeException.class})
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, String>> handleUnreadableBody(HttpMessageNotReadableException exception) {
+        logger.warn("Requisição da API contém JSON ou formato de data inválido", exception);
+        return ResponseEntity.badRequest().body(Map.of(
+                "message", "JSON inválido. Envie as datas no formato yyyy-MM-dd e confira os nomes e valores dos campos."));
+    }
+
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class, IllegalArgumentException.class,
+            DateTimeException.class})
     public ResponseEntity<Map<String, String>> handleBadRequest(Exception exception) {
         return ResponseEntity.badRequest().body(Map.of("message", "Dados ou filtros inválidos"));
     }
@@ -39,9 +48,17 @@ public class ApiExceptionHandler {
                 .body(Map.of("message", exception.getReason() == null ? "Operação não encontrada" : exception.getReason()));
     }
 
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrityViolation(DataIntegrityViolationException exception) {
+        logger.warn("A API não conseguiu persistir os dados por uma restrição da base de dados", exception);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "message", "Os dados conflitam com uma informação já salva ou com uma regra da base de dados. Confira os campos e tente novamente."));
+    }
+
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, String>> handleUnexpected(Exception exception) {
-        logger.error("Falha inesperada ao processar requisição da API", exception);
+    public ResponseEntity<Map<String, String>> handleUnexpected(
+            Exception exception, ServletWebRequest request) {
+        logger.error("Falha inesperada ao processar {} {}", request.getHttpMethod(), request.getRequest().getRequestURI(), exception);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("message", "Falha inesperada no servidor ao salvar os dados. Consulte o log do backend."));
     }

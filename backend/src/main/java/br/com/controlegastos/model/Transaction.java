@@ -1,5 +1,6 @@
 package br.com.controlegastos.model;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -39,6 +40,7 @@ public class Transaction {
 
     @NotNull(message = "A data é obrigatória")
     @Column(nullable = false)
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate date;
 
     @NotNull(message = "O tipo é obrigatório")
@@ -48,7 +50,7 @@ public class Transaction {
 
     @NotNull(message = "A categoria é obrigatória")
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 24)
+    @Column(nullable = false, length = 24, columnDefinition = "varchar(24)")
     private Category category;
 
     @NotNull(message = "A forma de pagamento é obrigatória")
@@ -63,7 +65,11 @@ public class Transaction {
     private Long recurringTransactionId;
 
     @Column(name = "recurrence_date")
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     private LocalDate recurrenceDate;
+
+    @Column(name = "installment_group_id", length = 36)
+    private String installmentGroupId;
 
     public Transaction() {
     }
@@ -148,6 +154,14 @@ public class Transaction {
         this.recurrenceDate = recurrenceDate;
     }
 
+    public String getInstallmentGroupId() {
+        return installmentGroupId;
+    }
+
+    public void setInstallmentGroupId(String installmentGroupId) {
+        this.installmentGroupId = installmentGroupId;
+    }
+
     public enum TransactionType {
         INCOME,
         EXPENSE
@@ -160,7 +174,9 @@ public class Transaction {
         TRANSPORT,
         INVESTMENTS,
         OTHER,
-        SALARY
+        SALARY,
+        SUBSCRIPTION,
+        INSTALLMENT
     }
 
     public enum PaymentMethod {

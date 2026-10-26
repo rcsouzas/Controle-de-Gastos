@@ -1,4 +1,6 @@
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/ExpenseTrackerApplication.java
+/workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/config/CategorySchemaMigration.java
+/workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/config/PersistentDatabaseStorage.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/config/WebConfig.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/controller/ApiExceptionHandler.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/controller/ProjectionController.java
@@ -6,6 +8,7 @@
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/controller/TransactionController.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/FinancialProjection.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/FinancialSummary.java
+/workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/InstallmentRequest.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/RecurringOccurrence.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/RecurringTransaction.java
 /workspaces/Controle-de-Gastos/backend/src/main/java/br/com/controlegastos/model/Transaction.java

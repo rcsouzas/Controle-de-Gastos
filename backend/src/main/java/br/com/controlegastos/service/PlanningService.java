@@ -47,6 +47,7 @@ public class PlanningService {
     public RecurringTransaction createRecurringTransaction(RecurringTransaction recurring) {
         recurring.setId(null);
         validateRecurring(recurring);
+        transactionService.validateChoices(recurring.getType(), recurring.getCategory(), recurring.getPaymentMethod());
         recurring.setActive(true);
         return recurringRepository.saveAndFlush(recurring);
     }
@@ -54,6 +55,7 @@ public class PlanningService {
     public RecurringTransaction updateRecurringTransaction(Long id, RecurringTransaction changes) {
         RecurringTransaction current = getRecurringById(id);
         validateRecurring(changes);
+        transactionService.validateChoices(changes.getType(), changes.getCategory(), changes.getPaymentMethod());
         current.setDescription(changes.getDescription());
         current.setAmount(changes.getAmount());
         current.setStartDate(changes.getStartDate());
@@ -73,6 +75,7 @@ public class PlanningService {
 
     public Transaction recordOccurrence(Long recurringId, Transaction transaction) {
         RecurringTransaction recurring = getRecurringById(recurringId);
+        transactionService.validateChoices(transaction.getType(), transaction.getCategory(), transaction.getPaymentMethod());
         LocalDate date = transaction.getDate();
         if (!occursOn(recurring, date)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A data não pertence a esta recorrência");
@@ -84,6 +87,7 @@ public class PlanningService {
         transaction.setId(null);
         transaction.setRecurringTransactionId(recurringId);
         transaction.setRecurrenceDate(date);
+        transaction.setInstallmentGroupId(null);
         return transactionRepository.saveAndFlush(transaction);
     }
 

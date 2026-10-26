@@ -54,7 +54,7 @@ public class RecurringTransaction {
 
     @NotNull(message = "A categoria é obrigatória")
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 24)
+    @Column(nullable = false, length = 24, columnDefinition = "varchar(24)")
     private Category category;
 
     @NotNull(message = "A forma de pagamento é obrigatória")

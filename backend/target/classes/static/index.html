@@ -12,9 +12,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="script.js?v=4" defer></script>
+  <script src="script.js?v=7" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -162,6 +162,9 @@
           <label class="form-field"><span>Data</span><input id="date" name="date" type="date" required></label>
         </div>
         <label class="form-field"><span>Categoria</span><select id="category" name="category" required></select></label>
+        <div class="form-field" id="installment-options" hidden>
+          <label class="form-field"><span>Parcelas mensais (incluindo a primeira)</span><input id="installment-count" name="installmentCount" type="number" min="1" max="120" step="1" value="2"></label>
+        </div>
         <label class="form-field"><span>Forma de pagamento</span><select id="payment-method" name="paymentMethod" required></select></label>
         <div class="form-field" id="recurrence-options" hidden>
           <label class="form-field"><span>Repetir</span><select id="frequency" name="frequency"><option value="WEEKLY">Toda semana</option><option value="MONTHLY">Todo mês</option></select></label>
