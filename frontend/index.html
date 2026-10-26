@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f3f6f4">
+  <meta name="description" content="Acompanhe receitas, despesas e seu saldo em um só lugar.">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>Clareza | Controle financeiro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css?v=3">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
+  <script src="script.js?v=4" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Navegação principal">
+      <a class="brand" href="#inicio" aria-label="Clareza, início">
+        <span class="brand-mark" aria-hidden="true">c</span>
+        <span>clareza<span class="brand-period">.</span></span>
+      </a>
+      <div class="side-caption">ESPAÇO PESSOAL</div>
+      <a class="nav-item active" href="#inicio"><span class="nav-indicator"></span>Visão geral</a>
+      <a class="nav-item" href="#transacoes"><span class="nav-indicator"></span>Transações</a>
+      <div class="sidebar-bottom">
+        <div class="privacy-note"><span class="privacy-dot"></span><span>Seus dados ficam<br>com você.</span></div>
+        <span class="sidebar-version">CLAREZA FINANCEIRA · 01</span>
+      </div>
+    </aside>
+
+    <main class="main-content" id="inicio">
+      <header class="topbar">
+        <div class="breadcrumb">Seu espaço <span>/</span> Visão geral</div>
+        <div class="topbar-actions">
+          <span class="today-label" id="today-label"></span>
+          <button class="icon-button" id="theme-toggle" type="button" aria-label="Ativar modo escuro" title="Alternar tema">
+            <span aria-hidden="true" id="theme-icon">◐</span>
+          </button>
+          <div class="avatar" aria-label="Perfil pessoal">M</div>
+        </div>
+      </header>
+
+      <section class="page-heading">
+        <div>
+          <p class="eyebrow">SEU DINHEIRO, EM PERSPECTIVA</p>
+          <h1>Visão geral<span class="heading-period">.</span></h1>
+          <p class="heading-copy">Uma leitura simples de como você está usando seu dinheiro.</p>
+        </div>
+        <button class="button button-dark" id="new-transaction-button" type="button"><span aria-hidden="true">＋</span> Nova transação</button>
+      </section>
+
+      <div class="connection-status" id="connection-status" role="status" hidden></div>
+
+      <section class="summary-grid" aria-label="Resumo financeiro do mês">
+        <article class="summary-card balance-card">
+          <div class="summary-top"><span class="summary-label">Saldo total</span><span class="summary-mark mark-balance" aria-hidden="true">↗</span></div>
+          <div class="summary-value" id="balance-total">R$ 0,00</div>
+          <div class="summary-foot"><span class="summary-period" id="summary-month">Acumulado</span><span class="balance-note">receitas − despesas</span></div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-top"><span class="summary-label">Total de receitas</span><span class="summary-mark mark-income" aria-hidden="true">↓</span></div>
+          <div class="summary-value" id="income-total">R$ 0,00</div>
+          <div class="summary-foot"><span class="summary-period">Todas as entradas</span><span class="trend trend-up">＋ recebido</span></div>
+        </article>
+        <article class="summary-card">
+          <div class="summary-top"><span class="summary-label">Total de despesas</span><span class="summary-mark mark-expense" aria-hidden="true">↑</span></div>
+          <div class="summary-value" id="expense-total">R$ 0,00</div>
+          <div class="summary-foot"><span class="summary-period">Todas as saídas</span><span class="trend trend-down">− gasto</span></div>
+        </article>
+      </section>
+
+      <section class="planning-grid" aria-label="Planejamento financeiro">
+        <article class="panel projection-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">VISÃO DO FUTURO</p><h2>Saldo projetado</h2></div>
+            <label class="filter-field projection-date"><span>Até</span><input id="projection-through" type="date" aria-label="Projetar saldo até"></label>
+          </div>
+          <div class="projection-balance" id="projected-balance">R$ 0,00</div>
+          <div class="projection-caption">Saldo previsto na data selecionada</div>
+          <div class="projection-breakdown">
+            <span>Saldo atual <strong id="projection-current-balance">R$ 0,00</strong></span>
+            <span>Receitas previstas <strong id="projected-income">R$ 0,00</strong></span>
+            <span>Despesas previstas <strong id="projected-expenses">R$ 0,00</strong></span>
+            <span>Menor saldo no período <strong id="lowest-projected-balance">R$ 0,00</strong></span>
+            <span>Complemento para não ficar negativo <strong id="additional-balance-needed">R$ 0,00</strong></span>
+          </div>
+        </article>
+        <article class="panel recurring-panel">
+          <div class="section-heading">
+            <div><p class="eyebrow">AUTOMÁTICO, MAS SOB SEU CONTROLE</p><h2>Recorrências</h2></div>
+            <button class="button button-dark" id="new-recurrence-button" type="button">＋ Nova</button>
+          </div>
+          <div class="recurrence-list" id="recurrences-list"></div>
+        </article>
+      </section>
+
+      <section class="panel occurrences-panel" aria-label="Próximos períodos recorrentes">
+        <div class="panel-heading">
+          <div><p class="eyebrow">AJUSTE UM PERÍODO</p><h2>Próximas ocorrências</h2></div>
+          <span class="chart-period">Previsões não alteram o saldo real</span>
+        </div>
+        <div class="occurrence-list" id="occurrences-list"></div>
+      </section>
+
+      <section class="analytics-grid" aria-label="Análises financeiras">
+        <article class="panel flow-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">ENTRADAS E SAÍDAS</p><h2>Fluxo financeiro</h2></div>
+            <span class="chart-period">Últimos 6 meses</span>
+          </div>
+          <div class="chart-wrap flow-chart-wrap"><canvas id="flow-chart" aria-label="Gráfico mensal de receitas e despesas"></canvas></div>
+          <div class="chart-legend"><span><i class="legend-dot income-dot"></i>Receitas</span><span><i class="legend-dot expense-dot"></i>Despesas</span></div>
+        </article>
+        <article class="panel category-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">PARA ONDE VAI</p><h2>Despesas por categoria</h2></div>
+            <span class="panel-menu" aria-hidden="true">•••</span>
+          </div>
+          <div class="donut-layout">
+            <div class="chart-wrap donut-chart-wrap"><canvas id="category-chart" aria-label="Gráfico de despesas por categoria"></canvas><div class="donut-center"><span>Total no mês</span><strong id="donut-total">R$ 0</strong></div></div>
+            <div class="category-legend" id="category-legend"></div>
+          </div>
+        </article>
+      </section>
+
+      <section class="transactions-section" id="transacoes">
+        <div class="section-heading">
+          <div><p class="eyebrow">ACOMPANHAMENTO</p><h2>Transações recentes</h2></div>
+          <span class="transaction-count" id="transaction-count">0 registros</span>
+        </div>
+        <div class="filters" aria-label="Filtros de transações">
+          <label class="filter-field"><span>Período</span><select id="filter-month" aria-label="Filtrar por mês"></select></label>
+          <label class="filter-field"><span>Ano</span><select id="filter-year" aria-label="Filtrar por ano"></select></label>
+          <label class="filter-field"><span>Categoria</span><select id="filter-category" aria-label="Filtrar por categoria"><option value="">Todas as categorias</option></select></label>
+          <button class="button button-text" id="clear-filters" type="button">Limpar filtros</button>
+        </div>
+        <div class="table-frame">
+          <table>
+            <thead><tr><th scope="col">Descrição</th><th scope="col">Categoria</th><th scope="col">Data</th><th scope="col">Pagamento</th><th scope="col" class="amount-heading">Valor</th><th scope="col"><span class="sr-only">Ações</span></th></tr></thead>
+            <tbody id="transactions-body"></tbody>
+          </table>
+          <div class="empty-state" id="empty-state" hidden><span class="empty-mark" aria-hidden="true">↗</span><strong>Nenhuma transação por aqui.</strong><span>Ajuste os filtros ou registre uma nova movimentação.</span></div>
+        </div>
+      </section>
+      <footer class="page-footer"><span>Feito para trazer clareza.</span><span>Seu financeiro, no seu ritmo.</span></footer>
+    </main>
+
+    <aside class="entry-panel" id="entry-panel" aria-labelledby="form-title" aria-hidden="true">
+      <div class="entry-panel-head"><div><p class="eyebrow">MOVIMENTAÇÃO</p><h2 id="form-title">Nova transação</h2></div><button class="icon-button close-button" id="close-form" type="button" aria-label="Fechar formulário">×</button></div>
+      <form id="transaction-form">
+        <input id="transaction-id" type="hidden">
+        <input id="recurrence-id" type="hidden">
+        <input id="source-recurring-id" type="hidden">
+        <fieldset class="type-switch"><legend>Tipo</legend><label class="type-option"><input type="radio" name="type" value="EXPENSE" checked><span>Despesa</span></label><label class="type-option"><input type="radio" name="type" value="INCOME"><span>Receita</span></label></fieldset>
+        <label class="form-field"><span>Descrição</span><input id="description" name="description" type="text" maxlength="120" placeholder="Ex.: Mercado da semana" required></label>
+        <div class="form-row">
+          <label class="form-field"><span>Valor</span><div class="currency-input"><span>R$</span><input id="amount" name="amount" type="number" min="0.01" step="0.01" placeholder="0,00" required></div></label>
+          <label class="form-field"><span>Data</span><input id="date" name="date" type="date" required></label>
+        </div>
+        <label class="form-field"><span>Categoria</span><select id="category" name="category" required></select></label>
+        <label class="form-field"><span>Forma de pagamento</span><select id="payment-method" name="paymentMethod" required></select></label>
+        <div class="form-field" id="recurrence-options" hidden>
+          <label class="form-field"><span>Repetir</span><select id="frequency" name="frequency"><option value="WEEKLY">Toda semana</option><option value="MONTHLY">Todo mês</option></select></label>
+          <label class="form-field"><span>Última data (opcional)</span><input id="end-date" name="endDate" type="date"></label>
+        </div>
+        <label class="planned-option" id="planned-option"><input id="planned" type="checkbox"><span>Planejado — ainda não aconteceu</span></label>
+        <div class="form-actions"><button class="button button-text" id="cancel-form" type="button">Cancelar</button><button class="button button-dark submit-button" type="submit" id="submit-button">Salvar transação</button></div>
+      </form>
+    </aside>
+    <div class="panel-backdrop" id="panel-backdrop"></div>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+  </div>
+</body>
+</html>
