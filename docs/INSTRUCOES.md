@@ -34,7 +34,7 @@ http://localhost:5500
 
 O Spring Boot serve os arquivos do diretório `frontend` e a API pela mesma porta. Não abra o `index.html` diretamente nem inicie outro servidor para o frontend.
 
-No GitHub Codespaces, abra a aba **Ports**, localize a porta `5500` e clique em **Open in Browser**. Se necessário, altere a visibilidade da porta conforme as permissões do seu Codespace.
+No GitHub Codespaces, abra a aba **Ports**, localize a porta `5500` e clique em **Open in Browser**. Se necessário, altere a visibilidade da porta conforme as permissões do seu Codespace. O frontend usa a origem atual do navegador para acessar `/api`; assim, funciona com a porta encaminhada do Codespaces sem fixar `localhost` ou uma porta diferente.
 
 Para parar o servidor, volte ao terminal em que ele está rodando e pressione `Ctrl+C`. Para abrir o sistema novamente depois, execute o comando de inicialização outra vez.
 
@@ -45,6 +45,17 @@ Se a porta `5500` já estiver ocupada, encerre a execução anterior do servidor
 O banco H2 fica fora do repositório, no diretório pessoal de cada usuário: `~/.controle-de-gastos/data/gastosdb.mv.db` (por exemplo, `/home/usuario/.controle-de-gastos/data/gastosdb.mv.db`). Assim, commits, pulls e atualizações dos arquivos do projeto não incluem nem substituem despesas, receitas, parcelas ou assinaturas.
 
 Na primeira inicialização desta versão, se ainda não existir banco nesse novo local, a aplicação copia o banco legado de `backend/data/gastosdb.mv.db` (ou `backend/data/controle-gastos.mv.db`) sem apagar o original. Se o banco externo já existir, ele nunca é sobrescrito pela cópia. A atualização de schema usa `ddl-auto=update`, preservando os registros.
+
+Antes do primeiro pull/checkout que remova os antigos arquivos de banco rastreados pelo Git, pare o servidor e faça uma cópia externa, sem substituir um banco externo que já exista:
+
+```bash
+mkdir -p "$HOME/.controle-de-gastos/data"
+if [ ! -f "$HOME/.controle-de-gastos/data/gastosdb.mv.db" ]; then
+  cp backend/data/gastosdb.mv.db "$HOME/.controle-de-gastos/data/gastosdb.mv.db"
+fi
+```
+
+Se o Git bloquear a atualização por alterações em `backend/data/*.mv.db`, não descarte essas alterações. Depois da cópia externa, conclua a atualização. A migração automática também copia o banco legado quando ele ainda está presente, mas nunca sobrescreve o banco externo nem apaga o arquivo original.
 
 Para manter uma cópia de segurança, pare o servidor com `Ctrl+C` antes de copiar o arquivo `.mv.db`. Guarde o backup fora do repositório. Não adicione o banco ao Git nem use opções do Hibernate que recriem o schema, como `create` ou `create-drop`.
 
@@ -57,6 +68,7 @@ A console do banco fica em `http://localhost:5500/h2-console`, usando JDBC URL `
 | GET | `/api/transactions` | Lista transações |
 | GET | `/api/transactions?year=2026&month=10&category=FOOD` | Filtra por ano, mês e categoria |
 | GET | `/api/transactions/summary` | Retorna saldo total, receitas e despesas acumuladas |
+| GET | `/api/transactions/report?startMonth=2026-10&endMonth=2026-11&incluirPlanejados=false` | Consolida receitas, despesas e saldo do período por mês |
 | POST | `/api/transactions` | Cria transação |
 | POST | `/api/transactions/installments` | Cria parcelas mensais com o mesmo valor |
 | PUT | `/api/transactions/{id}` | Atualiza transação |
@@ -103,7 +115,7 @@ Para criar parcelas, envie `POST /api/transactions/installments` com a transaç�
 
 Recorrência é uma previsão semanal (`"frequency": "WEEKLY"`) ou mensal (`"frequency": "MONTHLY"`). Use `startDate`, `endDate` opcional, `type`, `category`, `paymentMethod`, `description` e `amount`. Uma ocorrência ajustada é criada em `/api/recurrences/{id}/occurrences` com o payload de transação acima e a data prevista. Se `planned` for `true`, ela substitui o valor previsto apenas para aquela data; se for `false`, passa a ser um lançamento confirmado. Ajustar o valor da própria recorrência altera as próximas previsões da série, sem reescrever períodos já registrados. Ao excluir uma recorrência, ela é encerrada e os lançamentos associados são preservados.
 
-Categorias de despesa: `FOOD`, `HOUSING`, `LEISURE`, `TRANSPORT`, `INVESTMENTS`, `OTHER`, `SUBSCRIPTION` e `INSTALLMENT`. Categorias de receita: `SALARY`, `INVESTMENTS` e `OTHER`. O formulário filtra também as formas de pagamento: receitas aceitam Pix, transferência, dinheiro e outro; despesas aceitam todas as formas listadas. As regras são validadas também pela API.
+Categorias de despesa: `FOOD`, `HOUSING`, `LEISURE`, `TRANSPORT`, `INVESTMENTS`, `OTHER`, `SUBSCRIPTION`, `INSTALLMENT` e `INVOICE` (Fatura). Categorias de receita: `SALARY`, `INVESTMENTS`, `OTHER` e `REIMBURSEMENT` (Reembolso). O formulário filtra também as formas de pagamento: receitas aceitam Pix, transferência, dinheiro e outro; despesas aceitam todas as formas listadas. As regras são validadas também pela API.
 
 O resumo considera apenas transações confirmadas até hoje. A projeção parte desse saldo e soma os lançamentos futuros planejados e as ocorrências recorrentes até a data pedida. Respostas de valores `BigDecimal` são serializadas como números JSON:
 
@@ -117,7 +129,9 @@ O resumo considera apenas transações confirmadas até hoje. A projeção parte
 
 O retorno da projeção inclui `currentBalance`, `projectedBalance`, `lowestProjectedBalance`, `additionalBalanceNeeded`, `expectedIncome`, `expectedExpenses` e a lista `recurringOccurrences`. `additionalBalanceNeeded` informa quanto seria necessário acrescentar ao saldo atual para não ficar negativo em nenhum dia do período projetado.
 
-Tipos aceitos: `INCOME`, `EXPENSE`. Categorias: `FOOD`, `HOUSING`, `LEISURE`, `TRANSPORT`, `INVESTMENTS`, `OTHER`, `SALARY`, `SUBSCRIPTION` (Assinatura), `INSTALLMENT` (Parcela). Pagamentos: `PIX`, `CREDIT_CARD`, `DEBIT_CARD`, `CASH`, `BANK_TRANSFER`, `OTHER`.
+Tipos aceitos: `INCOME`, `EXPENSE`. Categorias: `FOOD`, `HOUSING`, `LEISURE`, `TRANSPORT`, `INVESTMENTS`, `OTHER`, `SALARY`, `SUBSCRIPTION` (Assinatura), `INSTALLMENT` (Parcela), `INVOICE` (Fatura) e `REIMBURSEMENT` (Reembolso). Pagamentos: `PIX`, `CREDIT_CARD`, `DEBIT_CARD`, `CASH`, `BANK_TRANSFER`, `OTHER`.
+
+A página **Relatório mensal** permite selecionar um intervalo de meses e consultar as receitas, despesas e saldo consolidado, além do detalhamento mês a mês. Receitas previstas e ocorrências futuras de recorrências ativas são incluídas automaticamente; a opção **Incluir despesas planejadas** também considera despesas futuras quando marcada. O período, a opção e o último resultado ficam salvos neste navegador; ao abrir a página, o resultado é restaurado e atualizado pela API.
 
 ## Testes
 

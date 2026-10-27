@@ -1,7 +1,16 @@
-const API_BASE_URL = window.location.origin;
-const API_URL = `${API_BASE_URL}/api/transactions`;
-const RECURRENCES_URL = `${API_BASE_URL}/api/recurrences`;
+const API_BASE_URL = new URL("/", window.location.href).origin;
+const API_URL = new URL("/api/transactions", API_BASE_URL).toString().replace(/\/$/, "");
+const RECURRENCES_URL = new URL("/api/recurrences", API_BASE_URL).toString();
 const PROJECTION_DATE_STORAGE_KEY = "clareza-projection-through";
+const REPORT_START_MONTH_STORAGE_KEY = "clareza-report-start-month";
+const REPORT_END_MONTH_STORAGE_KEY = "clareza-report-end-month";
+const REPORT_INCLUDE_PLANNED_STORAGE_KEY = "clareza-report-include-planned";
+const REPORT_CACHE_STORAGE_KEY = "clareza-report-cache";
+const REPORT_ELEMENT_IDS = [
+  "report-start-month", "report-end-month", "report-include-planned", "report-form", "update-report",
+  "report-range-error", "report-period", "report-balance", "report-balance-label",
+  "report-balance-card", "report-incomes", "report-expenses", "report-rows", "report-empty"
+];
 
 const categories = {
   FOOD: { label: "Alimentação", color: "#d4a747" },
@@ -12,8 +21,13 @@ const categories = {
   OTHER: { label: "Outros", color: "#91a29a" },
   SALARY: { label: "Salário", color: "#157a62" },
   SUBSCRIPTION: { label: "Assinatura", color: "#96705b" },
-  INSTALLMENT: { label: "Parcela", color: "#8d6f9f" }
+  INSTALLMENT: { label: "Parcela", color: "#8d6f9f" },
+  INVOICE: { label: "Fatura", color: "#bd6757" },
+  REIMBURSEMENT: { label: "Reembolso", color: "#4c9b83" }
 };
+
+const expenseCategories = ["FOOD", "HOUSING", "LEISURE", "TRANSPORT", "INVESTMENTS", "OTHER", "SUBSCRIPTION", "INSTALLMENT", "INVOICE"];
+const incomeCategories = ["SALARY", "INVESTMENTS", "OTHER", "REIMBURSEMENT"];
 
 const paymentMethods = {
   PIX: "Pix",
@@ -26,7 +40,7 @@ const paymentMethods = {
 
 const state = {
   transactions: [], summary: null, projection: null, recurrences: [],
-  flowChart: null, categoryChart: null, toastTimer: null, filtersInitialized: false
+  flowChart: null, categoryChart: null, toastTimer: null, filtersInitialized: false, reportRange: null
 };
 const elements = Object.fromEntries([
   "today-label", "theme-toggle", "theme-icon", "summary-month", "balance-total", "income-total", "expense-total",
@@ -37,7 +51,10 @@ const elements = Object.fromEntries([
   "recurrence-id", "source-recurring-id", "recurrence-options", "frequency", "end-date", "planned",
   "planned-option", "installment-options", "installment-count", "projection-through", "projected-balance", "projection-current-balance",
   "projected-income", "projected-expenses", "lowest-projected-balance", "additional-balance-needed",
-  "recurrences-list", "occurrences-list", "new-recurrence-button"
+  "recurrences-list", "occurrences-list", "new-recurrence-button", "report-start-month", "report-end-month",
+  "report-range-error", "report-period", "report-balance", "report-balance-label", "report-incomes",
+  "report-expenses", "report-rows", "report-empty", "report-balance-card", "report-form", "update-report",
+  "report-include-planned"
 ].map((id) => [id, document.getElementById(id)]));
 
 const money = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
@@ -77,10 +94,16 @@ async function request(url = API_URL, options = {}) {
     console.error("API retornou erro", options.method ?? "GET", url, response.status, message);
     throw new Error(`Erro ${response.status}: ${message}`);
   }
-  return response.status === 204 ? null : response.json();
+  if (response.status === 204) return null;
+  try {
+    return await response.json();
+  } catch (error) {
+    console.error("API retornou uma resposta JSON vazia ou inválida", options.method ?? "GET", url, error);
+    throw new Error("A API retornou uma resposta vazia ou inválida.");
+  }
 }
 
-async function loadTransactions() {
+async function loadTransactions(refreshReport = true) {
   try {
     const through = elements["projection-through"].value;
     const [transactions, summary, recurrences, projection] = await Promise.all([
@@ -89,6 +112,10 @@ async function loadTransactions() {
       request(RECURRENCES_URL),
       request(`${API_BASE_URL}/api/projection?through=${encodeURIComponent(through)}`)
     ]);
+    if (projection.through !== through) {
+      elements["projection-through"].value = projection.through;
+      storageSet(PROJECTION_DATE_STORAGE_KEY, projection.through);
+    }
     state.transactions = transactions;
     state.summary = summary;
     state.recurrences = recurrences;
@@ -96,6 +123,7 @@ async function loadTransactions() {
     setFilterOptions();
     setStatus("");
     render();
+    if (refreshReport) void generateReport();
     return true;
   } catch (error) {
     setStatus(`Não foi possível conectar à API (${API_URL}). Verifique se o servidor do site está iniciado na porta 5500. ${error.message}`);
@@ -142,6 +170,168 @@ function renderTransactions() {
   elements["transaction-count"].textContent = `${transactions.length} ${transactions.length === 1 ? "registro" : "registros"}`;
   elements["transactions-body"].replaceChildren(...transactions.map((transaction) => createTransactionRow(transaction)));
   elements["empty-state"].hidden = transactions.length > 0;
+}
+
+function renderReport(report) {
+  if (!isValidReportResponse(report)) {
+    throw new Error("A API retornou um relatório vazio ou inválido.");
+  }
+  const reportElements = getReportElements();
+  if (!reportElements) return;
+  const balance = Number(report.totalBalance);
+  reportElements["report-period"].textContent = `${formatMonth(report.startMonth)} a ${formatMonth(report.endMonth)}`;
+  reportElements["report-balance"].textContent = money.format(balance);
+  reportElements["report-balance-label"].textContent = balance > 0 ? "Saldo positivo" : balance < 0 ? "Saldo negativo" : "Saldo equilibrado";
+  reportElements["report-balance-card"].classList.toggle("positive", balance > 0);
+  reportElements["report-balance-card"].classList.toggle("negative", balance < 0);
+  reportElements["report-incomes"].textContent = money.format(Number(report.totalIncome));
+  reportElements["report-expenses"].textContent = money.format(Number(report.totalExpenses));
+
+  const rows = report.monthlyTotals.map((totals) => {
+    const row = document.createElement("tr");
+    const monthBalance = Number(totals.totalBalance);
+    const values = [
+      formatMonth(totals.month),
+      money.format(Number(totals.totalIncome)),
+      money.format(Number(totals.totalExpenses)),
+      money.format(monthBalance)
+    ];
+    values.forEach((value, index) => {
+      const cell = document.createElement("td");
+      cell.textContent = value;
+      if (index > 0) cell.classList.add("amount-cell");
+      if (index === 1 || (index === 3 && monthBalance >= 0)) cell.classList.add("income");
+      if (index === 2 || (index === 3 && monthBalance < 0)) cell.classList.add("expense");
+      row.append(cell);
+    });
+    return row;
+  });
+  reportElements["report-rows"].replaceChildren(...rows);
+  reportElements["report-empty"].hidden = rows.length > 0;
+}
+
+function formatMonth(value) {
+  const [year, month] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric" }).format(new Date(year, month - 1, 1));
+}
+
+function isValidReportMonth(value) {
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(value);
+}
+
+function isValidReportResponse(report) {
+  const validAmount = (value) => value !== null && value !== "" && Number.isFinite(Number(value));
+  return report !== null
+    && typeof report === "object"
+    && isValidReportMonth(report.startMonth)
+    && isValidReportMonth(report.endMonth)
+    && validAmount(report.totalBalance)
+    && validAmount(report.totalIncome)
+    && validAmount(report.totalExpenses)
+    && Array.isArray(report.monthlyTotals)
+    && report.monthlyTotals.every((month) => month
+      && isValidReportMonth(month.month)
+      && validAmount(month.totalBalance)
+      && validAmount(month.totalIncome)
+      && validAmount(month.totalExpenses));
+}
+
+function savedReportRange() {
+  const startMonth = storageGet(REPORT_START_MONTH_STORAGE_KEY);
+  const endMonth = storageGet(REPORT_END_MONTH_STORAGE_KEY);
+  if (isValidReportMonth(startMonth) && isValidReportMonth(endMonth) && startMonth <= endMonth) {
+    return { startMonth, endMonth };
+  }
+  return null;
+}
+
+function storageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    console.error(`Não foi possível ler o estado salvo (${key}).`, error);
+    return null;
+  }
+}
+
+function storageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+    return true;
+  } catch (error) {
+    console.error(`Não foi possível salvar o estado (${key}).`, error);
+    return false;
+  }
+}
+
+function getReportElements() {
+  const missingElements = REPORT_ELEMENT_IDS.filter((id) => !elements[id]);
+  if (missingElements.length) {
+    console.error("Relatório não inicializado: faltam elementos no HTML.", missingElements);
+    return null;
+  }
+  return elements;
+}
+
+function savedReportCache() {
+  try {
+    const cached = JSON.parse(storageGet(REPORT_CACHE_STORAGE_KEY) ?? "null");
+    if (!cached || typeof cached !== "object"
+        || typeof cached.incluirPlanejados !== "boolean"
+        || !isValidReportResponse(cached.report)) {
+      return null;
+    }
+    return cached;
+  } catch (error) {
+    console.error("O relatório salvo no navegador está inválido.", error);
+    return null;
+  }
+}
+
+async function generateReport() {
+  const reportElements = getReportElements();
+  if (!reportElements) return;
+  const startMonth = reportElements["report-start-month"].value;
+  const endMonth = reportElements["report-end-month"].value;
+  const incluirPlanejados = reportElements["report-include-planned"].checked;
+  if (!isValidReportMonth(startMonth) || !isValidReportMonth(endMonth) || startMonth > endMonth) {
+    reportElements["report-range-error"].textContent = "Informe um período válido: o mês inicial deve ser anterior ou igual ao mês final.";
+    reportElements["report-range-error"].hidden = false;
+    return;
+  }
+
+  storageSet(REPORT_START_MONTH_STORAGE_KEY, startMonth);
+  storageSet(REPORT_END_MONTH_STORAGE_KEY, endMonth);
+  storageSet(REPORT_INCLUDE_PLANNED_STORAGE_KEY, String(incluirPlanejados));
+
+  const button = reportElements["update-report"];
+  button.disabled = true;
+  button.textContent = "Gerando...";
+  reportElements["report-range-error"].hidden = true;
+  try {
+    const params = new URLSearchParams({
+      startMonth,
+      endMonth,
+      incluirPlanejados: String(incluirPlanejados)
+    });
+    const report = await request(`${API_URL}/report?${params.toString()}`);
+    if (!isValidReportResponse(report)) {
+      throw new Error("A API retornou um relatório vazio ou inválido.");
+    }
+    if (report.startMonth !== startMonth || report.endMonth !== endMonth) {
+      throw new Error("A API retornou um relatório para um período diferente do selecionado.");
+    }
+    state.reportRange = { startMonth, endMonth };
+    renderReport(report);
+    storageSet(REPORT_CACHE_STORAGE_KEY, JSON.stringify({ report, incluirPlanejados }));
+  } catch (error) {
+    console.error("Falha ao gerar relatório mensal", error);
+    reportElements["report-range-error"].textContent = `Não foi possível gerar o relatório. ${error.message}`;
+    reportElements["report-range-error"].hidden = false;
+  } finally {
+    button.disabled = false;
+    button.textContent = "Gerar relatório";
+  }
 }
 
 function createTransactionRow(transaction) {
@@ -232,7 +422,8 @@ function renderCharts() {
 }
 
 function renderFlowChart() {
-  if (!window.Chart) return;
+  const canvas = document.getElementById("flow-chart");
+  if (!window.Chart || !canvas) return;
   const months = [];
   for (let offset = 5; offset >= 0; offset -= 1) {
     months.push(new Date(currentDate.getFullYear(), currentDate.getMonth() - offset, 1));
@@ -245,7 +436,7 @@ function renderFlowChart() {
       && item.date.startsWith(yearMonth)), type);
   });
   state.flowChart?.destroy();
-  state.flowChart = new Chart(document.getElementById("flow-chart"), {
+  state.flowChart = new Chart(canvas, {
     type: "bar",
     data: { labels, datasets: [
       { label: "Receitas", data: values("INCOME"), backgroundColor: "#157a62", borderRadius: 3, maxBarThickness: 19 },
@@ -263,7 +454,8 @@ function renderFlowChart() {
 }
 
 function renderCategoryChart() {
-  if (!window.Chart) return;
+  const canvas = document.getElementById("category-chart");
+  if (!window.Chart || !canvas || !elements["category-legend"]) return;
   const expenses = currentMonthTransactions().filter((item) => item.type === "EXPENSE");
   const amounts = Object.keys(categories).filter((key) => key !== "SALARY").map((key) => ({
     key,
@@ -284,7 +476,7 @@ function renderCategoryChart() {
     elements["category-legend"].append(emptyLabel);
   }
   state.categoryChart?.destroy();
-  state.categoryChart = new Chart(document.getElementById("category-chart"), {
+  state.categoryChart = new Chart(canvas, {
     type: "doughnut",
     data: {
       labels: chartItems.map((item) => categories[item.key].label),
@@ -319,9 +511,8 @@ function setFormOptions() {
 
 function updateFormOptions(preferredCategory = elements.category.value, preferredPaymentMethod = elements["payment-method"].value) {
   const type = document.querySelector('input[name="type"]:checked').value;
-  const availableCategories = Object.entries(categories).filter(([value]) => type === "EXPENSE"
-    ? value !== "SALARY"
-    : ["SALARY", "INVESTMENTS", "OTHER"].includes(value));
+  const allowedCategories = type === "EXPENSE" ? expenseCategories : incomeCategories;
+  const availableCategories = Object.entries(categories).filter(([value]) => allowedCategories.includes(value));
   elements.category.innerHTML = availableCategories
     .map(([value, category]) => `<option value="${value}">${category.label}</option>`).join("");
   elements.category.value = availableCategories.some(([value]) => value === preferredCategory)
@@ -513,7 +704,7 @@ function showToast(message) {
 
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
-  localStorage.setItem("clareza-theme", theme);
+  storageSet("clareza-theme", theme);
   const dark = theme === "dark";
   elements["theme-toggle"].setAttribute("aria-label", dark ? "Ativar modo claro" : "Ativar modo escuro");
   elements["theme-icon"].textContent = dark ? "☼" : "◐";
@@ -528,7 +719,7 @@ function toISODate(date) {
 }
 
 function savedProjectionDate() {
-  const savedDate = localStorage.getItem(PROJECTION_DATE_STORAGE_KEY);
+  const savedDate = storageGet(PROJECTION_DATE_STORAGE_KEY);
   if (!savedDate || !/^\d{4}-\d{2}-\d{2}$/.test(savedDate)) return null;
   const parsedDate = new Date(`${savedDate}T00:00:00`);
   if (Number.isNaN(parsedDate.getTime()) || toISODate(parsedDate) !== savedDate) return null;
@@ -538,8 +729,12 @@ function savedProjectionDate() {
 async function loadProjection() {
   try {
     const through = elements["projection-through"].value;
-    if (through) localStorage.setItem(PROJECTION_DATE_STORAGE_KEY, through);
+    if (through) storageSet(PROJECTION_DATE_STORAGE_KEY, through);
     state.projection = await request(`${API_BASE_URL}/api/projection?through=${encodeURIComponent(through)}`);
+    if (state.projection.through !== through) {
+      elements["projection-through"].value = state.projection.through;
+      storageSet(PROJECTION_DATE_STORAGE_KEY, state.projection.through);
+    }
     renderPlanning();
   } catch (error) {
     showToast(error.message);
@@ -550,7 +745,29 @@ function initialize() {
   elements["today-label"].textContent = new Intl.DateTimeFormat("pt-BR", { dateStyle: "medium" }).format(currentDate);
   const defaultThrough = new Date(currentDate.getFullYear(), currentDate.getMonth() + 3, currentDate.getDate());
   elements["projection-through"].value = savedProjectionDate() ?? toISODate(defaultThrough);
+  const currentMonth = toISODate(currentDate).slice(0, 7);
+  state.reportRange = savedReportRange() ?? { startMonth: currentMonth, endMonth: currentMonth };
+  if (elements["report-start-month"] && elements["report-end-month"] && elements["report-include-planned"]) {
+    elements["report-start-month"].value = state.reportRange.startMonth;
+    elements["report-end-month"].value = state.reportRange.endMonth;
+    elements["report-include-planned"].checked =
+      storageGet(REPORT_INCLUDE_PLANNED_STORAGE_KEY) === "true";
+  }
   elements["projection-through"].addEventListener("change", loadProjection);
+  if (getReportElements()) {
+    const cachedReport = savedReportCache();
+    if (cachedReport
+        && cachedReport.report.startMonth === state.reportRange.startMonth
+        && cachedReport.report.endMonth === state.reportRange.endMonth
+        && cachedReport.incluirPlanejados === elements["report-include-planned"].checked) {
+      renderReport(cachedReport.report);
+    }
+    elements["update-report"].addEventListener("click", generateReport);
+    elements["report-form"].addEventListener("submit", (event) => {
+      event.preventDefault();
+      void generateReport();
+    });
+  }
   elements["filter-month"].addEventListener("change", renderTransactions);
   elements["filter-year"].addEventListener("change", renderTransactions);
   elements["filter-category"].addEventListener("change", renderTransactions);
@@ -570,11 +787,20 @@ function initialize() {
   elements["panel-backdrop"].addEventListener("click", closeForm);
   elements["transaction-form"].addEventListener("submit", saveTransaction);
   elements["theme-toggle"].addEventListener("click", () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"));
+  const updateNavigation = () => {
+    const activeHash = window.location.hash || "#inicio";
+    document.querySelectorAll(".nav-item").forEach((item) => {
+      item.classList.toggle("active", item.getAttribute("href") === activeHash);
+    });
+  };
+  window.addEventListener("hashchange", updateNavigation);
+  updateNavigation();
   document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeForm(); });
   setFormOptions();
   setFilterOptions();
-  setTheme(localStorage.getItem("clareza-theme") ?? "light");
-  loadTransactions();
+  setTheme(storageGet("clareza-theme") ?? "light");
+  void generateReport();
+  loadTransactions(false);
 }
 
 initialize();

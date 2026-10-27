@@ -19,6 +19,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -157,6 +158,18 @@ class PlanningIntegrationTest {
     }
 
     @Test
+    void projectionTreatsYesterdayAsTodayToHandleClientTimezoneDifferences() {
+        LocalDate today = LocalDate.now();
+
+        ResponseEntity<Map<String, Object>> projection = http.exchange(
+                "/api/projection?through=" + today.minusDays(1), HttpMethod.GET, null,
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(projection.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(projection.getBody().get("through")).isEqualTo(today.toString());
+    }
+
+    @Test
     void installmentTransactionsAreSavedMonthlyAndFutureAmountsEnterProjection() {
         LocalDate firstInstallment = LocalDate.of(2027, 1, 31);
         Map<String, Object> transaction = Map.of(
@@ -221,6 +234,118 @@ class PlanningIntegrationTest {
 
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(created.getBody().get("category")).isEqualTo("SUBSCRIPTION");
+    }
+
+    @Test
+    void invoiceExpenseAndReimbursementIncomeCategoriesCanBeSaved() {
+        Map<String, Object> invoice = Map.of(
+                "description", "Fatura do cartão",
+                "amount", 120,
+                "date", LocalDate.now().toString(),
+                "type", "EXPENSE",
+                "category", "INVOICE",
+                "paymentMethod", "CREDIT_CARD",
+                "planned", false);
+        Map<String, Object> reimbursement = Map.of(
+                "description", "Reembolso de consulta",
+                "amount", 80,
+                "date", LocalDate.now().toString(),
+                "type", "INCOME",
+                "category", "REIMBURSEMENT",
+                "paymentMethod", "PIX",
+                "planned", false);
+
+        ResponseEntity<Map<String, Object>> createdInvoice = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(invoice),
+                new ParameterizedTypeReference<>() {});
+        ResponseEntity<Map<String, Object>> createdReimbursement = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(reimbursement),
+                new ParameterizedTypeReference<>() {});
+
+        assertThat(createdInvoice.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(createdInvoice.getBody().get("category")).isEqualTo("INVOICE");
+        assertThat(createdReimbursement.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(createdReimbursement.getBody().get("category")).isEqualTo("REIMBURSEMENT");
+    }
+
+    @Test
+    void monthlyReportReturnsPeriodTotalsAndMonthlyBreakdown() {
+        YearMonth currentMonth = YearMonth.now();
+        YearMonth startMonth = currentMonth.minusMonths(1);
+        YearMonth endMonth = currentMonth.plusMonths(1);
+        saveTransaction("Salário", "2500", startMonth.atDay(10), "INCOME", "SALARY", false);
+        saveTransaction("Fatura", "800", startMonth.atDay(15), "EXPENSE", "INVOICE", false);
+        saveTransaction("Reembolso", "100", currentMonth.atDay(5), "INCOME", "REIMBURSEMENT", false);
+        saveTransaction("Receita prevista", "900", endMonth.atDay(10), "INCOME", "SALARY", true);
+        saveTransaction("Despesa planejada", "50", currentMonth.atDay(6), "EXPENSE", "FOOD", true);
+        saveTransaction("Despesa futura", "70", endMonth.atDay(15), "EXPENSE", "FOOD", false);
+        Map<String, Object> recurringIncome = Map.of(
+                "description", "Renda recorrente",
+                "amount", 300,
+                "startDate", endMonth.atDay(20).toString(),
+                "frequency", "MONTHLY",
+                "type", "INCOME",
+                "category", "SALARY",
+                "paymentMethod", "PIX");
+        http.exchange("/api/recurrences", HttpMethod.POST, jsonEntity(recurringIncome), Map.class);
+        Map<String, Object> anotherRecurringIncome = Map.of(
+                "description", "Renda semanal",
+                "amount", 100,
+                "startDate", endMonth.atDay(1).toString(),
+                "frequency", "WEEKLY",
+                "type", "INCOME",
+                "category", "SALARY",
+                "paymentMethod", "PIX");
+        ResponseEntity<Map<String, Object>> createdWeekly = http.exchange(
+                "/api/recurrences", HttpMethod.POST, jsonEntity(anotherRecurringIncome),
+                new ParameterizedTypeReference<>() {});
+        Number recurringId = (Number) createdWeekly.getBody().get("id");
+        Map<String, Object> occurrenceOverride = Map.of(
+                "description", "Renda semanal ajustada",
+                "amount", 150,
+                "date", endMonth.atDay(1).toString(),
+                "type", "INCOME",
+                "category", "SALARY",
+                "paymentMethod", "PIX",
+                "planned", true);
+        http.exchange("/api/recurrences/" + recurringId.longValue() + "/occurrences",
+                HttpMethod.POST, jsonEntity(occurrenceOverride), Map.class);
+
+        ResponseEntity<Map<String, Object>> response = http.exchange(
+                "/api/transactions/report?startMonth=" + startMonth + "&endMonth=" + endMonth
+                        + "&incluirPlanejados=false",
+                HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(new BigDecimal(response.getBody().get("totalIncome").toString()))
+                .isEqualByComparingTo("4350");
+        assertThat(new BigDecimal(response.getBody().get("totalExpenses").toString()))
+                .isEqualByComparingTo("800");
+        assertThat(new BigDecimal(response.getBody().get("totalBalance").toString()))
+                .isEqualByComparingTo("3550");
+        java.util.List<Map<String, Object>> monthlyTotals =
+                (java.util.List<Map<String, Object>>) response.getBody().get("monthlyTotals");
+        assertThat(monthlyTotals).hasSize(3);
+        assertThat(monthlyTotals.get(0).get("month")).isEqualTo(startMonth.toString());
+        assertThat(new BigDecimal(monthlyTotals.get(0).get("totalBalance").toString()))
+                .isEqualByComparingTo("1700");
+        assertThat(monthlyTotals.get(1).get("month")).isEqualTo(currentMonth.toString());
+        assertThat(monthlyTotals.get(2).get("month")).isEqualTo(endMonth.toString());
+        assertThat(new BigDecimal(monthlyTotals.get(2).get("totalIncome").toString()))
+                .isEqualByComparingTo("1750");
+        assertThat(new BigDecimal(monthlyTotals.get(2).get("totalExpenses").toString()))
+                .isEqualByComparingTo("0");
+
+        ResponseEntity<Map<String, Object>> withPlanned = http.exchange(
+                "/api/transactions/report?startMonth=" + startMonth + "&endMonth=" + endMonth
+                        + "&incluirPlanejados=true",
+                HttpMethod.GET, null, new ParameterizedTypeReference<>() {});
+        assertThat(new BigDecimal(withPlanned.getBody().get("totalExpenses").toString()))
+                .isEqualByComparingTo("920");
+        assertThat(new BigDecimal(withPlanned.getBody().get("totalIncome").toString()))
+                .isEqualByComparingTo("4350");
+        assertThat(new BigDecimal(withPlanned.getBody().get("totalBalance").toString()))
+                .isEqualByComparingTo("3430");
     }
 
     @Test
@@ -522,12 +647,38 @@ class PlanningIntegrationTest {
         ResponseEntity<String> page = http.getForEntity("/", String.class);
         assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(page.getBody()).contains("Clareza | Controle financeiro");
-        assertThat(page.getBody()).contains("script.js?v=7");
+        assertThat(page.getBody()).contains("script.js?v=14");
+        assertThat(page.getBody()).contains("id=\"report-form\"");
+        assertThat(page.getBody()).contains("id=\"update-report\" type=\"button\"");
+        assertThat(page.getBody()).contains("id=\"report-include-planned\"");
         assertThat(page.getHeaders().getCacheControl()).contains("no-store");
 
-        ResponseEntity<String> script = http.getForEntity("/script.js?v=7", String.class);
+        ResponseEntity<String> script = http.getForEntity("/script.js?v=14", String.class);
         assertThat(script.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(script.getBody()).contains("window.location.origin");
+        assertThat(script.getBody()).contains("new URL(\"/api/transactions\", API_BASE_URL)");
+        assertThat(script.getBody()).contains("addEventListener(\"click\", generateReport)");
+        assertThat(script.getBody()).contains("REPORT_START_MONTH_STORAGE_KEY");
+        assertThat(script.getBody()).contains("REPORT_CACHE_STORAGE_KEY");
+        assertThat(script.getBody()).contains("/report?${params.toString()}");
+        assertThat(script.getBody()).contains("incluirPlanejados: String(incluirPlanejados)");
+        assertThat(script.getBody()).contains("renderReport(report)");
+        assertThat(script.getBody()).doesNotContain("renderReport();");
+    }
+
+    private void saveTransaction(
+            String description, String amount, LocalDate date, String type, String category, boolean planned) {
+        Map<String, Object> transaction = Map.of(
+                "description", description,
+                "amount", new BigDecimal(amount),
+                "date", date.toString(),
+                "type", type,
+                "category", category,
+                "paymentMethod", "PIX",
+                "planned", planned);
+        ResponseEntity<Map<String, Object>> response = http.exchange(
+                "/api/transactions", HttpMethod.POST, jsonEntity(transaction),
+                new ParameterizedTypeReference<>() {});
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
     }
 
     private org.springframework.http.HttpEntity<Map<String, Object>> jsonEntity(Map<String, Object> body) {

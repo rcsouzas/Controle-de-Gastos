@@ -1,31 +1,40 @@
 package br.com.controlegastos.service;
 
+import br.com.controlegastos.model.FinancialReport;
+import br.com.controlegastos.model.FinancialSummary;
+import br.com.controlegastos.model.RecurringTransaction;
 import br.com.controlegastos.model.Transaction;
 import br.com.controlegastos.model.Transaction.Category;
 import br.com.controlegastos.model.Transaction.TransactionType;
-import br.com.controlegastos.model.FinancialSummary;
+import br.com.controlegastos.repository.RecurringTransactionRepository;
 import br.com.controlegastos.repository.TransactionRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.YearMonth;
-import java.math.BigDecimal;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @Transactional
 public class TransactionService {
     private final TransactionRepository repository;
+    private final RecurringTransactionRepository recurringRepository;
 
-    public TransactionService(TransactionRepository repository) {
+    public TransactionService(
+            TransactionRepository repository, RecurringTransactionRepository recurringRepository) {
         this.repository = repository;
+        this.recurringRepository = recurringRepository;
     }
 
     @Transactional(readOnly = true)
@@ -66,6 +75,131 @@ public class TransactionService {
         BigDecimal totalIncome = sumByType(transactions, TransactionType.INCOME);
         BigDecimal totalExpenses = sumByType(transactions, TransactionType.EXPENSE);
         return new FinancialSummary(totalIncome.subtract(totalExpenses), totalIncome, totalExpenses);
+    }
+
+    @Transactional(readOnly = true)
+    public FinancialReport getReport(
+            String requestedStartMonth, String requestedEndMonth, boolean incluirPlanejados) {
+        YearMonth startMonth;
+        YearMonth endMonth;
+        try {
+            startMonth = YearMonth.parse(requestedStartMonth);
+            endMonth = YearMonth.parse(requestedEndMonth);
+        } catch (java.time.DateTimeException | NullPointerException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Informe os meses no formato AAAA-MM");
+        }
+        if (startMonth.isAfter(endMonth)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "O mês inicial deve ser anterior ou igual ao mês final");
+        }
+
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = startMonth.atDay(1);
+        LocalDate endDate = endMonth.atEndOfMonth();
+        List<Transaction> periodTransactions = repository.findByDateBetweenOrderByDateDesc(startDate, endDate);
+        List<Transaction> transactions = periodTransactions.stream()
+            .filter(transaction -> (transaction.isPlanned()
+                && transaction.getType() == TransactionType.INCOME)
+                || incluirPlanejados
+                        || (!transaction.isPlanned() && !transaction.getDate().isAfter(today)))
+                .toList();
+
+        Map<YearMonth, BigDecimal[]> monthlyTotals = new HashMap<>();
+        for (YearMonth month = startMonth; !month.isAfter(endMonth); month = month.plusMonths(1)) {
+            monthlyTotals.put(month, new BigDecimal[] { BigDecimal.ZERO, BigDecimal.ZERO });
+        }
+        for (Transaction transaction : transactions) {
+            BigDecimal[] totals = monthlyTotals.get(YearMonth.from(transaction.getDate()));
+            int amountIndex = transaction.getType() == TransactionType.INCOME ? 0 : 1;
+            totals[amountIndex] = totals[amountIndex].add(transaction.getAmount());
+        }
+        addProjectedRecurringIncome(monthlyTotals, periodTransactions, startMonth, endMonth, today);
+
+        BigDecimal totalIncome = monthlyTotals.values().stream()
+                .map(totals -> totals[0])
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalExpenses = monthlyTotals.values().stream()
+                .map(totals -> totals[1])
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<FinancialReport.MonthlySummary> monthlySummaries = monthlyTotals.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new FinancialReport.MonthlySummary(
+                        entry.getKey().toString(),
+                        entry.getValue()[0],
+                        entry.getValue()[1],
+                        entry.getValue()[0].subtract(entry.getValue()[1])))
+                .toList();
+
+        return new FinancialReport(
+                startMonth.toString(),
+                endMonth.toString(),
+                totalIncome.subtract(totalExpenses),
+                totalIncome,
+                totalExpenses,
+                monthlySummaries);
+    }
+
+    private void addProjectedRecurringIncome(
+            Map<YearMonth, BigDecimal[]> monthlyTotals,
+            List<Transaction> periodTransactions,
+            YearMonth startMonth,
+            YearMonth endMonth,
+            LocalDate today) {
+        Set<String> registeredOccurrences = new HashSet<>();
+        periodTransactions.stream()
+                .filter(transaction -> transaction.getRecurringTransactionId() != null
+                        && transaction.getRecurrenceDate() != null)
+                .forEach(transaction -> registeredOccurrences.add(
+                        transaction.getRecurringTransactionId() + ":" + transaction.getRecurrenceDate()));
+
+        LocalDate reportStart = startMonth.atDay(1);
+        LocalDate reportEnd = endMonth.atEndOfMonth();
+        for (RecurringTransaction recurring : recurringRepository.findByActiveTrueOrderByStartDateAsc()) {
+            if (recurring.getType() != TransactionType.INCOME) {
+                continue;
+            }
+            LocalDate firstDate = recurring.getStartDate().isAfter(reportStart)
+                    ? recurring.getStartDate() : reportStart;
+            if (firstDate.isBefore(today)) {
+                firstDate = today;
+            }
+            LocalDate lastDate = recurring.getEndDate() != null && recurring.getEndDate().isBefore(reportEnd)
+                    ? recurring.getEndDate() : reportEnd;
+            if (firstDate.isAfter(lastDate)) {
+                continue;
+            }
+
+            if (recurring.getFrequency() == RecurringTransaction.Frequency.WEEKLY) {
+                long daysSinceStart = ChronoUnit.DAYS.between(recurring.getStartDate(), firstDate);
+                long daysToOccurrence = (7 - daysSinceStart % 7) % 7;
+                for (LocalDate date = firstDate.plusDays(daysToOccurrence);
+                        !date.isAfter(lastDate); date = date.plusWeeks(1)) {
+                    addProjectedIncome(monthlyTotals, registeredOccurrences, recurring, date);
+                }
+            } else {
+                for (YearMonth month = YearMonth.from(firstDate);
+                        !month.isAfter(YearMonth.from(lastDate)); month = month.plusMonths(1)) {
+                    LocalDate date = month.atDay(Math.min(
+                            recurring.getStartDate().getDayOfMonth(), month.lengthOfMonth()));
+                    if (!date.isBefore(firstDate) && !date.isAfter(lastDate)) {
+                        addProjectedIncome(monthlyTotals, registeredOccurrences, recurring, date);
+                    }
+                }
+            }
+        }
+    }
+
+    private void addProjectedIncome(
+            Map<YearMonth, BigDecimal[]> monthlyTotals,
+            Set<String> registeredOccurrences,
+            RecurringTransaction recurring,
+            LocalDate date) {
+        String occurrenceKey = recurring.getId() + ":" + date;
+        if (registeredOccurrences.contains(occurrenceKey)) {
+            return;
+        }
+        BigDecimal[] totals = monthlyTotals.get(YearMonth.from(date));
+        totals[0] = totals[0].add(recurring.getAmount());
     }
 
     @Transactional(readOnly = true)
@@ -206,8 +340,12 @@ public class TransactionService {
 
     void validateChoices(TransactionType type, Category category, Transaction.PaymentMethod paymentMethod) {
         boolean validCategory = type == TransactionType.EXPENSE
-                ? category != Category.SALARY
-                : category == Category.SALARY || category == Category.INVESTMENTS || category == Category.OTHER;
+                ? category == Category.FOOD || category == Category.HOUSING || category == Category.LEISURE
+                        || category == Category.TRANSPORT || category == Category.INVESTMENTS
+                        || category == Category.OTHER || category == Category.SUBSCRIPTION
+                        || category == Category.INSTALLMENT || category == Category.INVOICE
+                : category == Category.SALARY || category == Category.INVESTMENTS
+                        || category == Category.OTHER || category == Category.REIMBURSEMENT;
         boolean validPaymentMethod = type == TransactionType.EXPENSE
                 || paymentMethod == Transaction.PaymentMethod.PIX
                 || paymentMethod == Transaction.PaymentMethod.BANK_TRANSFER

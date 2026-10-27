@@ -94,9 +94,10 @@ public class PlanningService {
     @Transactional(readOnly = true)
     public FinancialProjection projectThrough(LocalDate through) {
         LocalDate today = LocalDate.now();
-        if (through == null || through.isBefore(today)) {
+        if (through == null || through.isBefore(today.minusDays(1))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "A data final deve ser hoje ou uma data futura");
         }
+        LocalDate projectionThrough = through.isBefore(today) ? today : through;
 
         FinancialSummary summary = transactionService.getSummary();
         List<Transaction> transactions = transactionRepository.findAll();
@@ -109,7 +110,7 @@ public class PlanningService {
         BigDecimal expectedExpenses = BigDecimal.ZERO;
         TreeMap<LocalDate, BigDecimal> dailyNet = new TreeMap<>();
         for (Transaction transaction : transactions) {
-            if (transaction.getDate().isBefore(today) || transaction.getDate().isAfter(through)) {
+            if (transaction.getDate().isBefore(today) || transaction.getDate().isAfter(projectionThrough)) {
                 continue;
             }
             if (!transaction.isPlanned() && !transaction.getDate().isAfter(today)) {
@@ -126,7 +127,7 @@ public class PlanningService {
 
         List<RecurringOccurrence> occurrences = new ArrayList<>();
         for (RecurringTransaction recurring : recurringRepository.findByActiveTrueOrderByStartDateAsc()) {
-            for (LocalDate date : datesBetween(recurring, today, through)) {
+            for (LocalDate date : datesBetween(recurring, today, projectionThrough)) {
                 if (registeredOccurrences.contains(occurrenceKey(recurring.getId(), date))) {
                     continue;
                 }
@@ -152,7 +153,7 @@ public class PlanningService {
         BigDecimal additionalBalanceNeeded = lowestProjectedBalance.signum() < 0
                 ? lowestProjectedBalance.negate()
                 : BigDecimal.ZERO;
-        return new FinancialProjection(through, summary.totalBalance(), projectedBalance,
+        return new FinancialProjection(projectionThrough, summary.totalBalance(), projectedBalance,
                 lowestProjectedBalance, additionalBalanceNeeded, expectedIncome, expectedExpenses,
                 List.copyOf(occurrences));
     }

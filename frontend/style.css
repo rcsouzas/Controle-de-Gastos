@@ -125,6 +125,19 @@ h1 { margin: 7px 0 5px; font-size: 30px; font-weight: 700; }
 .category-legend-item span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .category-legend-item strong { margin-left: auto; color: var(--ink); font-size: 10px; font-weight: 600; }
 .transactions-section { margin-top: 34px; }
+.report-section { margin-top: 34px; scroll-margin-top: 20px; }
+.report-description { margin: -5px 0 14px; color: var(--muted); font-size: 12px; }
+.report-filters { border-bottom: 1px solid var(--line); border-radius: 8px; }
+.report-filters input:not([type="checkbox"]) { width: 100%; min-width: 0; height: 36px; padding: 0 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 12px; }
+.report-filters input:not([type="checkbox"]):focus { border-color: #6b9a88; outline: none; box-shadow: 0 0 0 3px rgba(21,122,98,.1); }
+.report-planned-option { display: flex; min-height: 36px; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+.report-planned-option input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; margin: 0; accent-color: var(--green); cursor: pointer; }
+.report-summary { margin-top: 14px; }
+.report-balance-card.positive .summary-value, .amount-cell.income { color: var(--green); }
+.report-balance-card.negative .summary-value { color: var(--coral); }
+.report-error { margin: 10px 0 0; color: var(--coral); font-size: 11px; }
+.report-error[hidden] { display: none; }
+.report-table-frame { margin-top: 14px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .section-heading { margin-bottom: 15px; }
 .transaction-count { color: var(--muted); font-size: 11px; }
 .filters { display: flex; align-items: end; gap: 10px; padding: 13px 14px; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--surface); }
@@ -145,6 +158,7 @@ td:first-child { color: var(--ink); font-weight: 600; }
 .amount-cell { text-align: right; font-weight: 700; }
 .amount-cell.income { color: var(--green); }
 .amount-cell.expense { color: var(--ink); }
+.report-table-frame .amount-cell { text-align: right; }
 .amount-heading { text-align: right; }
 .row-actions { display: flex; justify-content: end; gap: 4px; }
 .row-action { width: 29px; height: 29px; border: 0; border-radius: 5px; background: transparent; color: #819087; font-size: 15px; }
@@ -211,7 +225,10 @@ td:first-child { color: var(--ink); font-weight: 600; }
   .sidebar { position: static; width: auto; height: 58px; flex-direction: row; align-items: center; justify-content: space-between; padding: 0 18px; }
   .brand { margin: 0; font-size: 19px; }
   .brand-mark { width: 28px; height: 28px; }
-  .side-caption, .nav-item, .sidebar-bottom { display: none; }
+  .side-caption, .sidebar-bottom { display: none; }
+  .sidebar { height: auto; min-height: 58px; flex-wrap: wrap; gap: 2px; padding: 7px 12px; }
+  .nav-item { display: flex; flex: 1 1 auto; min-height: 32px; justify-content: center; gap: 5px; padding: 0 5px; font-size: 10px; }
+  .nav-indicator { flex: 0 0 5px; width: 5px; height: 5px; }
   .main-content { margin: 0; padding: 0 17px; }
   .topbar { min-height: 55px; }
   .today-label, .breadcrumb { font-size: 10px; }
@@ -234,6 +251,11 @@ td:first-child { color: var(--ink); font-weight: 600; }
   .donut-chart-wrap { height: 150px; }
   .category-legend { grid-template-columns: 1fr; gap: 9px; }
   .transactions-section { margin-top: 27px; }
+  .report-section { margin-top: 27px; }
+  .report-filters { flex-wrap: wrap; }
+  .report-filters .filter-field { flex: 1 1 120px; }
+  .report-planned-option { flex: 1 1 100%; }
+  .report-filters .button { flex: 1 1 100%; }
   .section-heading h2 { font-size: 15px; }
   .filters { flex-wrap: wrap; gap: 8px; padding: 11px; }
   .filter-field { flex: 1 1 110px; min-width: 0; }

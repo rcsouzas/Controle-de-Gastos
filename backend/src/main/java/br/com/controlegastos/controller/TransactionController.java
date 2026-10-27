@@ -3,6 +3,7 @@ package br.com.controlegastos.controller;
 import br.com.controlegastos.model.Transaction;
 import br.com.controlegastos.model.Transaction.Category;
 import br.com.controlegastos.model.FinancialSummary;
+import br.com.controlegastos.model.FinancialReport;
 import br.com.controlegastos.model.InstallmentRequest;
 import br.com.controlegastos.service.TransactionService;
 import jakarta.validation.Valid;
@@ -41,6 +42,14 @@ public class TransactionController {
     @GetMapping("/summary")
     public FinancialSummary getSummary() {
         return service.getSummary();
+    }
+
+    @GetMapping("/report")
+    public FinancialReport getReport(
+            @RequestParam(name = "startMonth") String startMonth,
+            @RequestParam(name = "endMonth") String endMonth,
+            @RequestParam(name = "incluirPlanejados", defaultValue = "false") boolean incluirPlanejados) {
+        return service.getReport(startMonth, endMonth, incluirPlanejados);
     }
 
     @PostMapping

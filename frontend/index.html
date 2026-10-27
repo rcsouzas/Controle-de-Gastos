@@ -12,9 +12,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js" defer></script>
-  <script src="script.js?v=7" defer></script>
+  <script src="script.js?v=14" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -25,6 +25,7 @@
       </a>
       <div class="side-caption">ESPAÇO PESSOAL</div>
       <a class="nav-item active" href="#inicio"><span class="nav-indicator"></span>Visão geral</a>
+      <a class="nav-item" href="#relatorio"><span class="nav-indicator"></span>Relatório mensal</a>
       <a class="nav-item" href="#transacoes"><span class="nav-indicator"></span>Transações</a>
       <div class="sidebar-bottom">
         <div class="privacy-note"><span class="privacy-dot"></span><span>Seus dados ficam<br>com você.</span></div>
@@ -125,6 +126,45 @@
             <div class="category-legend" id="category-legend"></div>
           </div>
         </article>
+      </section>
+
+      <section class="report-section" id="relatorio" aria-labelledby="report-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">RESULTADO DO PERÍODO</p><h2 id="report-title">Relatório mensal</h2></div>
+          <span class="transaction-count" id="report-period"></span>
+        </div>
+        <p class="report-description">Receitas previstas e recorrências futuras são contabilizadas automaticamente; inclua despesas planejadas quando necessário.</p>
+        <form class="filters report-filters" id="report-form" aria-label="Período do relatório">
+          <label class="filter-field"><span>De</span><input id="report-start-month" type="month" aria-label="Mês inicial do relatório" required></label>
+          <label class="filter-field"><span>Até</span><input id="report-end-month" type="month" aria-label="Mês final do relatório" required></label>
+          <label class="report-planned-option"><input id="report-include-planned" type="checkbox"><span>Incluir despesas planejadas</span></label>
+          <button class="button button-dark" id="update-report" type="button">Gerar relatório</button>
+        </form>
+        <p class="report-error" id="report-range-error" role="status" hidden></p>
+        <section class="summary-grid report-summary" aria-label="Totais do relatório">
+          <article class="summary-card report-balance-card" id="report-balance-card">
+            <div class="summary-top"><span class="summary-label">Saldo do período</span><span class="summary-mark mark-balance" aria-hidden="true">↗</span></div>
+            <div class="summary-value" id="report-balance">R$ 0,00</div>
+            <div class="summary-foot"><span class="summary-period">Receitas − despesas</span><span class="balance-note" id="report-balance-label">Sem movimentações</span></div>
+          </article>
+          <article class="summary-card">
+            <div class="summary-top"><span class="summary-label">Receitas no período</span><span class="summary-mark mark-income" aria-hidden="true">↓</span></div>
+            <div class="summary-value" id="report-incomes">R$ 0,00</div>
+            <div class="summary-foot"><span class="summary-period">Realizadas e previstas</span><span class="trend trend-up">＋ recebido</span></div>
+          </article>
+          <article class="summary-card">
+            <div class="summary-top"><span class="summary-label">Despesas no período</span><span class="summary-mark mark-expense" aria-hidden="true">↑</span></div>
+            <div class="summary-value" id="report-expenses">R$ 0,00</div>
+            <div class="summary-foot"><span class="summary-period">Saídas confirmadas</span><span class="trend trend-down">− gasto</span></div>
+          </article>
+        </section>
+        <div class="report-table-frame">
+          <table>
+            <thead><tr><th scope="col">Mês</th><th scope="col" class="amount-heading">Receitas</th><th scope="col" class="amount-heading">Despesas</th><th scope="col" class="amount-heading">Saldo</th></tr></thead>
+            <tbody id="report-rows"></tbody>
+          </table>
+          <div class="empty-state" id="report-empty" hidden><span class="empty-mark" aria-hidden="true">↗</span><strong>Nenhuma movimentação confirmada neste período.</strong><span>Experimente selecionar outros meses.</span></div>
+        </div>
       </section>
 
       <section class="transactions-section" id="transacoes">

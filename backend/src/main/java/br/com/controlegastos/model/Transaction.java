@@ -176,7 +176,9 @@ public class Transaction {
         OTHER,
         SALARY,
         SUBSCRIPTION,
-        INSTALLMENT
+        INSTALLMENT,
+        INVOICE,
+        REIMBURSEMENT
     }
 
     public enum PaymentMethod {
